@@ -1,8 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
 from matplotlib.animation import FuncAnimation
 from threading import Thread
 import time
+
 
 
 class HistPlot:
@@ -232,3 +234,148 @@ class Plot:
         self._activeUpdatingThread = Thread(target=self._updateLoop)
         self._activeUpdatingThread.setDaemon(True)
         self._activeUpdatingThread.start()
+
+
+
+class PlotCorrelation:
+
+    def __init__(self, data_x, data_y, Nlast = 200,
+                 axes=None, label=None,
+                 scanVariable=0,
+                 autosetAxlabel=True):
+        self.data_x = data_x
+        self.data_y = data_y
+        self.Nlast = Nlast
+        if axes is None:
+            axes = plt.gca()
+        if label is None:
+            label = self.data_y.name
+        self.axes = axes
+        self.label = label
+        self.autosetAxlabel = autosetAxlabel
+        self.autoscale = True
+        self.isUpdating = False
+        self.drawn = None
+        self.updateInterval = .5
+        self._minimumSleep = .01
+
+    def _getplotData(self,Nlast=None):
+        if not Nlast is None:
+            self.Nlast = Nlast
+        flatten = lambda l: [item for sublist in l for item in sublist]
+        #try:
+        xi = np.asarray(flatten(self.data_x.eventIds))
+        yi = np.asarray(flatten(self.data_y.eventIds))
+        xd = np.asarray(flatten(self.data_x.data))
+        yd = np.asarray(flatten(self.data_y.data))
+
+        xsel = np.in1d(xi,yi)
+        ysel = np.in1d(yi,xi)
+
+        xi = xi[np.where(xsel)]
+        xd = xd[np.where(xsel)]
+        yi = yi[np.where(ysel)]
+        yd = yd[np.where(ysel)]
+
+        mx = np.max(xi)
+        xsel = xi>(mx-self.Nlast)
+        ysel = yi>(mx-self.Nlast)
+
+        xind = np.argsort(xi[xsel])
+        xd = xd[xsel][xind]
+        yind = np.argsort(yi[ysel])
+        yd = yd[ysel][yind]
+        return xd, yd
+        #except:
+            #return [],[]
+
+
+
+    def plot(self):
+        self._lastPlotRequest = time.time()
+        x, y = self._getplotData()
+        if len(x) == 0:
+            self._lastPlottingTime = time.time()-self._lastPlotRequest
+            return
+        props = next(self.axes._get_lines.prop_cycler)
+        holdstate = self.axes.ishold()
+        self.axes.hold(True)
+        line = self.axes.plot(x, y, '.', label=self.label, **props)[0]
+        self.drawn = dict(line=line)
+        if self.autosetAxlabel:
+            self.axes.set_xlabel(
+                '%s / %s' % (
+                    self.data_x.name,
+                    self.data_x.unit))
+            self.axes.set_ylabel(
+                '%s / %s' % (
+                    self.data_y.name,
+                    self.data_y.unit))
+        plt.draw_all()
+        self.axes.hold(holdstate)
+        self._lastPlottingTime = time.time()-self._lastPlotRequest
+
+    def replot(self):
+        self._lastPlotRequest = time.time()
+        x, y = self._getplotData()
+        if self.drawn is None:
+            self.plot()
+            return
+        self.drawn['line'].set_xdata(x)
+        self.drawn['line'].set_ydata(y)
+        if self.autoscale:
+            self.axes.relim()
+            self.axes.autoscale_view(True, True, True)
+        plt.draw_all()
+        self._lastPlottingTime = time.time()-self._lastPlotRequest
+
+
+    def _updateLoop(self, interval=0.5):
+        # if self.drawn is None:
+            # self.plot()
+        while self.isUpdating:
+            self.replot()
+            time.sleep(max(self.updateInterval -
+                           self._lastPlottingTime, self._minimumSleep))
+
+    def updateContinuously(self, interval=.5):
+        self.updateInterval = interval
+        self.isUpdating = True
+        self._activeUpdatingThread = Thread(target=self._updateLoop)
+        self._activeUpdatingThread.setDaemon(True)
+        self._activeUpdatingThread.start()
+
+
+def nfigure(name="noname",figsize=None,**figprops):
+  try:
+    fig_names = [x.canvas.manager.window.get_title()
+      for x in matplotlib._pylab_helpers.Gcf.get_all_fig_managers()]
+  except:
+    try:
+                  fig_names = [x.canvas.manager.window.wm_title()
+        for x in matplotlib._pylab_helpers.Gcf.get_all_fig_managers()]
+    except:
+      fig_names = [x.canvas.manager.window.windowTitle()
+        for x in matplotlib._pylab_helpers.Gcf.get_all_fig_managers()]
+        #import code; code.interact(local=locals())
+  n=0
+  found=0
+  for tname in fig_names:
+          n+=1
+          if tname == name:
+                  fig=matplotlib._pylab_helpers.Gcf.get_all_fig_managers()[n-1]
+                  matplotlib._pylab_helpers.Gcf.set_active(fig)
+                  fig = plt.gcf()
+                  found = 1
+
+  if not found==1:
+          print('Created new figure %s'  % (name))
+          if (figsize is None):
+                  fig = plt.figure(**figprops)
+          else:
+                  fig = plt.figure(figsize=figsize,**figprops)
+          if name is not None:
+            fig.canvas.set_window_title(name)
+  plt.figure(fig.number)
+  return fig
+

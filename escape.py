@@ -12,6 +12,8 @@ from es_wrappers import EventHandler_SFEL
 import numpy as np
 import tools
 import operator
+import plots
+import copy
 
 
 def initEscDataInstances():
@@ -166,7 +168,12 @@ class EscData:
     def _update(self):
         self._appendEventData()
 
-    def accumulate(self, do_accumulate):
+    def accumulate(self, do_accumulate=None):
+
+        if do_accumulate is None:
+            print('Toggling accumulation to', ['on','off'][self._is_accumulating()])
+            do_accumulate = not self._is_accumulating()
+
         if do_accumulate:
             self._source.eventWorker.eventCallbacks.append(
                 self._appendEventData)
@@ -178,15 +185,10 @@ class EscData:
             except:
                 pass
 
-    def plot(self, style='auto', update=True):
-        """
-        styles:
-            -step
-            -tube
-            -bar
-            -
-        """
-        pass
+    def _is_accumulating(self):
+        return self._appendEventData in self._source.eventWorker.eventCallbacks
+
+
 
     def digitize(self,target,edges,side='left'):
         pass
@@ -241,6 +243,36 @@ class EscData:
         pervals = [50-perc/2., 50+perc/2.]
         return [np.percentile(td, pervals, axis=0) for td in self.data]
 
+    def plotHist(self,update=.5,axes=None):
+        self.accumulate(1)
+        if axes is None:
+            fig = plots.nfigure('%s histogram'%self.name)
+            axes = fig.gca()
+        self._histPlot = plots.HistPlot(self)
+        self._histPlot.plot()
+        if update:
+            self._histPlot.updateContinuously(interval=update)
+
+    def plotMed(self,update=.5,axes=None):
+        self.accumulate(1)
+        if axes is None:
+            fig = plots.nfigure('%s median'%self.name)
+            axes = fig.gca()
+        self._medPlot = plots.Plot(self)
+        self._medPlot.plot()
+        if update:
+            self._medPlot.updateContinuously(interval=update)
+
+    def plotCorr(self,xVar,Npoints=300,update=.5,axes=None):
+        self.accumulate(1)
+        xVar.accumulate(1)
+        if axes is None:
+            fig = plots.nfigure('%s %s Correlation'%(self.name,xVar.name))
+            axes = fig.gca()
+        self._corrPlot = plots.PlotCorrelation(xVar,self,Nlast=Npoints)
+        self._corrPlot.plot()
+        if update:
+            self._corrPlot.updateContinuously(interval=update)
 
 # class SortedData:
     # def __init__(self,data,sorter,issorted):
@@ -433,11 +465,11 @@ class ProcObj:
         for returnIndex, isesc in enumerate(self.returns_is_esc):
             if isesc:
                 if self.returns_names is None:
-                    name = None
+                    name = 'none'
                 else:
                     name = self.returns_names[returnIndex]
                 if self.returns_units is None:
-                    unit = None
+                    unit = 'none'
                 else:
                     unit = self.returns_units[returnIndex]
                 newscan = self.scan.copy()
@@ -531,6 +563,21 @@ def digitizeScan(escdata, edges, side='left'):
     return Scan(escdats, values=values)
 
 
+def wrapFunc_singleOutput(func, name=None, unit=None, scan=None):
+    if name is None:
+        name = 'none'
+    if unit is None:
+        unit = 'none'
+    def newFunc(*args,**kwargs):
+        p = ProcObj(func, args=args,
+                    returns_is_esc=[True],
+                    returns_names=[name],
+                    returns_units=[unit],
+                    scan=Scan(None))
+        return p.createChildren()[0]
+    return newFunc
+
+
 def _wrapOperatorJoin(func, symbol):
     def newFunc(*args):
         names = [
@@ -613,6 +660,6 @@ for opSing, symbol in _operatorsSingle:
         EscData,
         '__%s__' %
         opSing.__name__,
-        _wrapOperatorJoin(
+        _wrapOperatorSingle(
             opSing,
          symbol))
