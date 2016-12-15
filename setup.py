@@ -12,4 +12,5 @@ setup(
     url='https://github.com/htlemke/escape',
     packages=['escape'],
     requires=['bsread','numpy','matplotlib'],
+    zip_safe=False,
 )
